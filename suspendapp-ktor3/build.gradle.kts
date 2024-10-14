@@ -25,7 +25,7 @@ kotlin {
     val commonMain by getting {
       dependencies {
         api(libs.arrow.fx)
-        api(libs.ktor2.core)
+        api(libs.ktor3.core)
       }
     }
     
