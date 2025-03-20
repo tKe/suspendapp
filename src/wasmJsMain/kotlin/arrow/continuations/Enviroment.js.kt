@@ -17,17 +17,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.promise
 import kotlinx.coroutines.withContext
 
-public actual fun process(): Process = JsProcess
+internal actual fun process(): Process = JsProcess
 
-public object JsProcess : Process {
+private object JsProcess : Process {
   override fun onShutdown(block: suspend () -> Unit): () -> Unit {
     onSigTerm { code -> exitAfter(128 + code) { block() } }
     onSigInt { code -> exitAfter(128 + code) { block() } }
     return { /* Nothing to unregister */ }
   }
 
-  override fun onSigTerm(block: suspend (code: Int) -> Unit): Unit =
-    onSignal("SIGTERM") { block(15) }
+  override fun onSigTerm(block: suspend (code: Int) -> Unit): Unit = onSignal("SIGTERM") { block(15) }
 
   override fun onSigInt(block: suspend (code: Int) -> Unit): Unit = onSignal("SIGINT") { block(2) }
 
@@ -36,10 +35,8 @@ public object JsProcess : Process {
   private fun onSignal(signal: String, block: suspend () -> Unit) {
     @Suppress("UNUSED_VARIABLE")
     val provide: () -> Promise<JsAny?> = { GlobalScope.promise { block() } }
-    processOn(provide)
+    processOn(signal, provide)
   }
-
-  private val jobs: MutableList<Job> = mutableListOf()
 
   override fun runScope(context: CoroutineContext, block: suspend CoroutineScope.() -> Unit) {
     val innerJob = Job()
@@ -57,8 +54,10 @@ public object JsProcess : Process {
               delay(1.hours)
             }
           }
-        runCatching { withContext(context, block) }.also { keepAlive.cancelAndJoin() }.getOrThrow()
-      }
+        runCatching { withContext(context, block) }
+          .also { keepAlive.cancelAndJoin() }
+          .getOrThrow()
+    }
       .startCoroutine(Continuation(EmptyCoroutineContext) {})
   }
 
@@ -67,10 +66,7 @@ public object JsProcess : Process {
     error("process.exit() should have exited...")
   }
 
-  override fun close() {
-    suspend { jobs.forEach { it.cancelAndJoin() } }
-      .startCoroutine(Continuation(EmptyCoroutineContext) {})
-  }
+  override fun close(): Unit = Unit
 }
 
 private inline fun Process.exitAfter(code: Int, block: () -> Unit): Unit =
@@ -82,7 +78,7 @@ private inline fun Process.exitAfter(code: Int, block: () -> Unit): Unit =
     exit(-1)
   }
 
-public fun processOn(provide: () -> Promise<JsAny?>) {
+private fun processOn(signal: String, provide: () -> Promise<JsAny?>) {
   js(
     """
     process.on(signal, function() {
@@ -91,6 +87,6 @@ public fun processOn(provide: () -> Promise<JsAny?>) {
   )
 }
 
-public fun jsExit(code: Int) {
+private fun jsExit(code: Int) {
   js("process.exit(code);")
 }
